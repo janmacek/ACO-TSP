@@ -3,9 +3,9 @@
 #include <exception>
 
 //TODO inicializovat spravne premenne
-int ANT_COUNT = 10;
+int ANT_COUNT = 100;
 int BETA = 2;
-float PHEROMONE_INIT_VALUE = 1;
+float PHEROMONE_INIT_VALUE = 5;
 float ALPHA = 0.1;
 float RHO = 0.1;
 

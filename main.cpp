@@ -43,13 +43,21 @@ void sig_handler(int signal) {
 
 void readCsv() {
     std::getline(cin, start);
-
     for(string line; std::getline(cin, line);) {
         string source, destination, departure, price;
         istringstream iss(line);
 
         if (!(iss >> source >> destination >> departure >> price)) {
             throw MissingColumnException();
+        }
+
+        //Skip flight from start which is not 0.day
+        if(source.compare(start) == 0 && (uint16_t) stoi(departure) !=0){
+            continue;
+        }
+        //Skip flight from city(not start) which is 0.day
+        if(source.compare(start) != 0 && (uint16_t) stoi(departure) ==0){
+            continue;
         }
 
         citiesMap[source][destination][(uint16_t) stoi(departure)] = {source, destination, (uint16_t) stoi(departure), (uint16_t) stoi(price), PHEROMONE_INIT_VALUE};
@@ -124,10 +132,14 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
     set<string>::const_iterator itdes;
     for( itdes=nonVisitedCities.begin(); itdes != nonVisitedCities.end(); itdes++) {
 
-        float cityRating = citiesMap[source][*itdes][departure].pheromone * (1 / pow(citiesMap[source][*itdes][departure].price, BETA));
-        availableCities.push_back(*itdes);
-        availableCitiesRating.push_back(cityRating);
-        availableCitiesRatingSum += cityRating;
+        //Iba ak existuje taky let
+        if(citiesMap[source][*itdes][departure].source.compare("") != 0){
+            float cityRating = citiesMap[source][*itdes][departure].pheromone * (1 / pow(citiesMap[source][*itdes][departure].price, BETA));
+            availableCities.push_back(*itdes);
+            availableCitiesRating.push_back(cityRating);
+            availableCitiesRatingSum += cityRating;
+        }
+
     }
 
     // Generate random number from <0;1>
@@ -156,6 +168,7 @@ void evaluate() {
 
                 // Ant is lost ?
                 if(ants[k].active){
+
                     ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
                     // Ant is lost ?
                     if(ants[k].nextCity.compare("") == 0){
@@ -248,7 +261,7 @@ int main(int argc, char **argv) {
 
 
     init();
-
+    //printCities();
     cout << "Startujem z: " << start << endl;
 
     //Infinite loop
