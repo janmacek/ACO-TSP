@@ -13,7 +13,7 @@ TARGET = main
 all: $(TARGET)
 
 $(TARGET): $(TARGET).cpp $(TARGET).hpp
-	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).cpp $(TARGET).hpp
+	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).cpp 
 
 clean:
 	$(RM) $(TARGET)
