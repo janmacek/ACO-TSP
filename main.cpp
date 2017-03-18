@@ -92,7 +92,7 @@ void initAnts(){
 
         tmpAnt.actualCity = start;
         tmpAnt.nextCity = "";
-        tmpAnt.cost = 0;
+        tmpAnt.cost = UINT16_MAX;
         tmpAnt.nonVisitedCities = tmpCities;
         tmpAnt.active = true;
 
@@ -151,13 +151,13 @@ void evaluate() {
     for(int i = 0; i < cityCount; i++) {
         if(i < (cityCount -1) ) {
 
-            //Find next city for all ants
+            // Find next city for all ants
             for(int k = 0; k < ANT_COUNT; k++){
 
-                //Ant is lost ?
+                // Ant is lost ?
                 if(ants[k].active){
                     ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
-                    //Ant is lost ?
+                    // Ant is lost ?
                     if(ants[k].nextCity.compare("") == 0){
                         ants[k].active=false;
                     }else{
@@ -168,14 +168,13 @@ void evaluate() {
             }
         } else {
 
-            //Return all ants to start city
+            // Return all ants to start city
             for(int k = 0; k < ANT_COUNT; k++){
 
-                //Ant is not lost ?
+                // Ant is not lost ?
                 if(ants[k].active){
                     ants[k].nextCity = start;
-                    // TODO je to bezpecne ??
-                    if(citiesMap[ants[k].actualCity][ants[k].nextCity][i].source.compare("")!= 0){
+                    if(citiesMap[ants[k].actualCity][ants[k].nextCity][i].source.compare("") != 0){
                         ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
                     }else{
                         ants[k].active=false;
@@ -187,19 +186,19 @@ void evaluate() {
             }
         }
 
-        //Local update pheromone and and position
+        // Local update pheromone and and position
         for(int k = 0; k < ANT_COUNT; k++){
 
             //Ant is not lost ?
             if(ants[k].active){
                 float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
-                citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO)* pheromoneActual + RHO*PHEROMONE_INIT_VALUE;
+                citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO) *  pheromoneActual + RHO * PHEROMONE_INIT_VALUE;
                 ants[k].actualCity = ants[k].nextCity ;
             }
         }
     }
 
-    //Update cost of ant path
+    // Update cost of ant path
     for(int k = 0; k < ANT_COUNT; k++){
         if(ants[k].active){
             ants[k].cost = 0;
@@ -209,42 +208,26 @@ void evaluate() {
         }
     }
 
-
-    //Get actual best path
+    // Find best solution across ants
     int bestIndex = 0;
     for(int k = 0; k < ANT_COUNT; k++){
-
         if(ants[k].active){
-            if(ants[k].cost > ants[bestIndex].cost ){
+            if(ants[k].cost < ants[bestIndex].cost ){
                 bestIndex=k;
             }
         }
     }
-
 
     if(ants[bestIndex].cost < bestCost) {
         bestCost = ants[bestIndex].cost;
         bestPath = ants[bestIndex].path;
     }
 
-    //Update global pheromones
-    //Initialize edges with pheromone
-    map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
-    for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
-
-        //Iterate oved map key=destination
-        map <string , map <uint16_t , Flight>  >::const_iterator itdes;
-        for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
-
-            //Iterate oved map key=departure
-            map <uint16_t , Flight>  ::const_iterator itdep;
-            for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
-                float pheromoneActual = citiesMap[its->first][itdes->first][itdep->first].pheromone;
-
-                // TODO namiesto "bestCost" tam ma byt sucet cien vsetkych tras mravcov, ktore maju vo vyslednej trase aj tento let
-                citiesMap[its->first][itdes->first][itdep->first].pheromone = (1-ALPHA) * pheromoneActual + (1 / bestCost);
-            }
-        }
+    // Update global pheromones
+    vector<Flight>::const_iterator flight_it;
+    for( flight_it=bestPath.begin(); flight_it!=bestPath.end(); flight_it++) {
+        float pheromoneActual = citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone;
+        citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone = ( 1 - ALPHA ) * pheromoneActual + (1 / bestCost);
     }
 }
 
