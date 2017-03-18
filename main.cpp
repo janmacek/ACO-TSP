@@ -19,6 +19,10 @@ int bestCost = UINT16_MAX;
 vector<Flight> bestPath;
 vector<Ant> ants;
 int cityCount = 0;
+set<string> tmpCities;
+
+//TODO zmazat nakonci
+int lostAnts = 0;
 
 
 void printResults() {
@@ -27,12 +31,14 @@ void printResults() {
     for(it = bestPath.begin(); it != bestPath.end();it++){
         cout << it->source <<" "<<it->destination <<" "<< it->departure<<" "<< it->price << endl;
     }
-    exit(0);
+
 }
 
 void sig_handler(int signal) {
-  if (signal == SIGINT)
-    printResults();
+    if (signal == SIGINT){
+        printResults();
+        exit(0);
+    }
 }
 
 void readCsv() {
@@ -78,18 +84,9 @@ void printCities() {
     }
 }
 
-void init(){
-
-    set<string> tmpCities ;
-
-    map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
-    for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
-        if(its->first != start) {
-            tmpCities.insert(its->first);
-        }
-    }
-
+void initAnts(){
     //Initialization of ants
+    ants.clear();
     for(int i=0; i<ANT_COUNT; i++){
         Ant tmpAnt;
 
@@ -101,8 +98,21 @@ void init(){
 
         ants.push_back(tmpAnt);
     }
-
 }
+
+void init(){
+
+    map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
+    for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
+        if(its->first != start) {
+            tmpCities.insert(its->first);
+        }
+    }
+
+    initAnts();
+}
+
+
 
 string getNextCity(string source, uint16_t departure, set<string> nonVisitedCities){
 
@@ -127,7 +137,7 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
         // If random number is in interval assigned to this city, return it as next city
         r -= availableCitiesRating[i] / availableCitiesRatingSum;
         if(r < 0) {
-            cout << "Vyberam si teba: " << availableCities[i] << endl;
+            //cout << "Vyberam si teba: " << availableCities[i] << endl;
             return availableCities[i];
         }
     }
@@ -138,61 +148,76 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
 
 void evaluate() {
 
-    for(int i = 0; i < cityCount-1; i++) {
-        if(i < cityCount) {
+    for(int i = 0; i < cityCount; i++) {
+        if(i < (cityCount -1) ) {
 
             //Find next city for all ants
             for(int k = 0; k < ANT_COUNT; k++){
 
-
-                ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
-
-                //TODO co ak nemoze dalsie mesto, tj. ak nextCity je ""
-
-                ants[k].nonVisitedCities.erase(ants[k].nextCity);
-                ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
+                //Ant is lost ?
+                if(ants[k].active){
+                    ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
+                    //Ant is lost ?
+                    if(ants[k].nextCity.compare("") == 0){
+                        ants[k].active=false;
+                    }else{
+                        ants[k].nonVisitedCities.erase(ants[k].nextCity);
+                        ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
+                    }
+                }
             }
         } else {
 
             //Return all ants to start city
             for(int k = 0; k < ANT_COUNT; k++){
-                ants[k].nextCity = start;
 
-                // TODO skontrolovat ci sa nachadza cesta medzi poslednym mestom a prvym a vyvodit dosledky
-                ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
+                //Ant is not lost ?
+                if(ants[k].active){
+                    ants[k].nextCity = start;
+                    // TODO je to bezpecne ??
+                    if(citiesMap[ants[k].actualCity][ants[k].nextCity][i].source.compare("")!= 0){
+                        ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
+                    }else{
+                        ants[k].active=false;
+                    }
+
+
+                }
+
             }
         }
 
         //Local update pheromone and and position
         for(int k = 0; k < ANT_COUNT; k++){
 
-            float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
-            citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO)* pheromoneActual + RHO*PHEROMONE_INIT_VALUE;
-            ants[k].actualCity = ants[k].nextCity ;
+            //Ant is not lost ?
+            if(ants[k].active){
+                float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
+                citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO)* pheromoneActual + RHO*PHEROMONE_INIT_VALUE;
+                ants[k].actualCity = ants[k].nextCity ;
+            }
         }
     }
 
     //Update cost of ant path
     for(int k = 0; k < ANT_COUNT; k++){
-        ants[k].cost = 0;
-        for(uint16_t j=0; j<ants[k].path.size() ;j++){
-            ants[k].cost += ants[k].path[j].price;
+        if(ants[k].active){
+            ants[k].cost = 0;
+            for(uint16_t j=0; j<ants[k].path.size() ;j++){
+                ants[k].cost += ants[k].path[j].price;
+            }
         }
     }
 
-    //Compute cost of ants tour
-    for(int k = 0; k < ANT_COUNT;k++){
-        ants[k].cost = 0;
-        for(uint16_t j=0; j<ants[k].path.size() ;j++){
-            ants[k].cost += ants[k].path[j].price;
-        }
-    }
 
     //Get actual best path
     int bestIndex = 0;
     for(int k = 0; k < ANT_COUNT; k++){
-        if(ants[k].cost > ants[bestIndex].cost){
-            bestIndex=k;
+
+        if(ants[k].active){
+            if(ants[k].cost > ants[bestIndex].cost ){
+                bestIndex=k;
+            }
         }
     }
 
@@ -201,8 +226,6 @@ void evaluate() {
         bestCost = ants[bestIndex].cost;
         bestPath = ants[bestIndex].path;
     }
-
-
 
     //Update global pheromones
     //Initialize edges with pheromone
@@ -246,9 +269,11 @@ int main(int argc, char **argv) {
     cout << "Startujem z: " << start << endl;
 
     //Infinite loop
-//      while(true){
-    evaluate();
-//}
+    while(true){
+        initAnts();
+        evaluate();
+        printResults();
+    }
     //printCities();
     return 0;
 }
