@@ -1,9 +1,10 @@
+#include <csignal>
 #include <iostream>
 #include <ctime>
+#include <cmath>
 #include <string>
 #include <fstream>
 #include <sstream>
-#include <exception>
 #include <vector>
 #include <map>
 #include <list>
@@ -12,23 +13,12 @@
 
 using namespace std;
 
-
-struct MissingColumnException : public exception {
-    const char * what () const throw () {
-        return "Malformed line in CSV input. There was expected another column.";
-    }
-};
-
 map<string, map <string , map <uint16_t , Flight> > > citiesMap;
 string start = "";
-int bestCost;
+int bestCost = UINT16_MAX;
 vector<Flight> bestPath;
 vector<Ant> ants;
 int cityCount = 0;
-int antCount = 0;
-int pheromoneInitValue = 0;
-float alpha = 0;
-float rho = 0;
 
 
 void printResults() {
@@ -40,8 +30,7 @@ void printResults() {
     exit(0);
 }
 
-void sig_handler(int signal)
-{
+void sig_handler(int signal) {
   if (signal == SIGINT)
     printResults();
 }
@@ -57,183 +46,190 @@ void readCsv() {
             throw MissingColumnException();
         }
 
-        citiesMap[source][destination][(uint16_t) stoi(departure)] = {source, destination, (uint16_t) stoi(departure), (uint16_t) stoi(price), 0};
+        citiesMap[source][destination][(uint16_t) stoi(departure)] = {source, destination, (uint16_t) stoi(departure), (uint16_t) stoi(price), PHEROMONE_INIT_VALUE};
     }
+
+    cityCount = citiesMap.size();
 }
 
 void printCities() {
 
     map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
+
     //Iterate oved map key=source
     for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
-      cout << its->first << endl;
+        cout << its->first << endl;
 
-      map <string , map <uint16_t , Flight > >::const_iterator itdes;
-      //Iterate oved map key=destination
-      for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
+        map <string , map <uint16_t , Flight > >::const_iterator itdes;
 
-        map <uint16_t , Flight > ::const_iterator itdep;
-        //Iterate oved map key=departure
-        for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
-          ////Iterate oved vector with flight
-          Flight flight = citiesMap[its->first][itdes->first][itdep->first];
-          cout << "{source: "<<flight.source << ", destination: " << flight.destination << ", price: " << flight.price << ", departure: " << flight.departure << ", pheromone: " << flight.pheromone << "}" << endl;
+        //Iterate oved map key=destination
+        for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
 
+            map <uint16_t , Flight > ::const_iterator itdep;
 
+            //Iterate oved map key=departure
+            for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
+
+                //Iterate oved vector with flight
+                Flight flight = citiesMap[its->first][itdes->first][itdep->first];
+                cout << "{source: "<<flight.source << ", destination: " << flight.destination << ", price: " << flight.price << ", departure: " << flight.departure << ", pheromone: " << flight.pheromone << "}" << endl;
+            }
         }
-      }
     }
 }
 
 void init(){
 
-  //TODO inicializovat spravne premenne
-  antCount = 1;
-  pheromoneInitValue = 1;
-  alpha = 0.1;
-  rho = 0.1;
-  cityCount = citiesMap.size();
+    set<string> tmpCities ;
 
-
-  set<string> tmpCities ;
-
-  map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
-  //Initialize edges with pheromone
-  for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
-
-    map <string , map <uint16_t , Flight>  >::const_iterator itdes;
-    //Iterate oved map key=destination
-    for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
-
-      map <uint16_t , Flight>  ::const_iterator itdep;
-      //Iterate oved map key=departure
-      for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
-        citiesMap[its->first][itdes->first][itdep->first].pheromone = pheromoneInitValue;
-      }
+    map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
+    for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
+        if(its->first != start) {
+            tmpCities.insert(its->first);
+        }
     }
 
-    tmpCities.insert(its->first);
-  }
+    //Initialization of ants
+    for(int i=0; i<ANT_COUNT; i++){
+        Ant tmpAnt;
 
+        tmpAnt.actualCity = start;
+        tmpAnt.nextCity = "";
+        tmpAnt.cost = 0;
+        tmpAnt.nonVisitedCities = tmpCities;
+        tmpAnt.active = true;
 
-  tmpCities.erase(start);
-
-  //Initialize ants
-  for(int i=0; i<antCount; i++){
-    Ant tmpAnt;
-    tmpAnt.actualCity = start;
-    tmpAnt.nextCity = "";
-    tmpAnt.cost = 0;
-    tmpAnt.nonVisitedCities = tmpCities;
-    ants.push_back(tmpAnt);
-
-  }
+        ants.push_back(tmpAnt);
+    }
 
 }
 
-string getNextCity(string source, uint16_t departure,set<string> nonVisitedCities){
+string getNextCity(string source, uint16_t departure, set<string> nonVisitedCities){
 
-  vector<Flight> availableCities;
+    vector<string> availableCities;
+    vector<float> availableCitiesRating;
+    float availableCitiesRatingSum = 0;
 
-  set<string>::const_iterator itdes;
-  //Iterate oved map key=destination
-  for( itdes=nonVisitedCities.begin(); itdes!=nonVisitedCities.end(); itdes++) {
-    availableCities.push_back(citiesMap[source][*itdes][departure]);
-  }
+    // Count probability of choosing for all available cities = not yet visited
+    set<string>::const_iterator itdes;
+    for( itdes=nonVisitedCities.begin(); itdes != nonVisitedCities.end(); itdes++) {
 
+        float cityRating = citiesMap[source][*itdes][departure].pheromone * (1 / pow(citiesMap[source][*itdes][departure].price, BETA));
+        availableCities.push_back(*itdes);
+        availableCitiesRating.push_back(cityRating);
+        availableCitiesRatingSum += cityRating;
+    }
 
-//Helper print 
-  for (int i=0; i<availableCities.size();i++){
-    cout << availableCities[i].source <<"|"<< availableCities[i].destination << endl;
-  }
-  if(!availableCities.empty()){
-    //TODO vyber naj mesta;
+    // Generate random number from <0;1>
+    auto r = ((double) rand() / (RAND_MAX));
+    for (size_t i = 0; i < availableCitiesRating.size(); i++) {
+
+        // If random number is in interval assigned to this city, return it as next city
+        r -= availableCitiesRating[i] / availableCitiesRatingSum;
+        if(r < 0) {
+            cout << "Vyberam si teba: " << availableCities[i] << endl;
+            return availableCities[i];
+        }
+    }
+
+    // If no city is available from actual city
     return "";
-  }else{
-    return "";
-  }
-
-
 }
 
 void evaluate() {
 
-  //Infinite loop
-    while(true){
-      for(int i=0; i<cityCount; i++){
-            if(i < cityCount){
-              //Find next city for all ants
-              for(int k = 0; k < antCount; k++){
-                //TODO co ak nemoze dalsie mesto
+    for(int i = 0; i < cityCount-1; i++) {
+        if(i < cityCount) {
+
+            //Find next city for all ants
+            for(int k = 0; k < ANT_COUNT; k++){
+
+
                 ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
+
+                //TODO co ak nemoze dalsie mesto, tj. ak nextCity je ""
+
                 ants[k].nonVisitedCities.erase(ants[k].nextCity);
-                ants[k].path[i] = citiesMap[ants[k].actualCity][ants[k].nextCity][i];
-              }
-            }else{
-              //Return all ants to start city
-              for(int k = 0; k < antCount; k++){
+                ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
+            }
+        } else {
+
+            //Return all ants to start city
+            for(int k = 0; k < ANT_COUNT; k++){
                 ants[k].nextCity = start;
-                ants[k].path[i] = citiesMap[ants[k].actualCity][ants[k].nextCity][i];
-              }
+
+                // TODO skontrolovat ci sa nachadza cesta medzi poslednym mestom a prvym a vyvodit dosledky
+                ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
             }
-            //Local update pheromone and and position
-            for(int k = 0; k < antCount; k++){
-
-              float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
-              citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - rho)* pheromoneActual + rho*pheromoneInitValue;
-              ants[k].actualCity = ants[k].nextCity ;
-            }
-      }
-
-      //Update cost of ant path
-      for(int k = 0; k < antCount; k++){
-          ants[k].cost = 0;
-          for(int j=0; j<ants[k].path.size() ;j++){
-            ants[k].cost += ants[k].path[j].price;
-          }
-      }
-
-      //Compute cost of ants tour
-      for(int k = 0; k < antCount;k++){
-            ants[k].cost = 0;
-            for(int j=0; j<ants[k].path.size() ;j++){
-                ants[k].cost += ants[k].path[j].price;
-            }
-      }
-
-      //Get actual best path
-      int bestIndex = 0;
-      for(int k = 0; k < antCount; k++){
-          if(ants[k].cost > ants[bestIndex].cost){
-            bestIndex=k;
-          }
-      }
-      bestCost = ants[bestIndex].cost;
-      bestPath = ants[bestIndex].path;
-
-      //Update global pheromones
-      map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
-      //Initialize edges with pheromone
-      for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
-        map <string , map <uint16_t , Flight>  >::const_iterator itdes;
-        //Iterate oved map key=destination
-        for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
-
-          map <uint16_t , Flight>  ::const_iterator itdep;
-          //Iterate oved map key=departure
-          for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
-            float pheromoneActual = citiesMap[its->first][itdes->first][itdep->first].pheromone;
-            citiesMap[its->first][itdes->first][itdep->first].pheromone = (1-alpha) * pheromoneActual + alpha * (1/bestCost);
-          }
         }
 
-      }
+        //Local update pheromone and and position
+        for(int k = 0; k < ANT_COUNT; k++){
 
+            float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
+            citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO)* pheromoneActual + RHO*PHEROMONE_INIT_VALUE;
+            ants[k].actualCity = ants[k].nextCity ;
+        }
+    }
+
+    //Update cost of ant path
+    for(int k = 0; k < ANT_COUNT; k++){
+        ants[k].cost = 0;
+        for(uint16_t j=0; j<ants[k].path.size() ;j++){
+            ants[k].cost += ants[k].path[j].price;
+        }
+    }
+
+    //Compute cost of ants tour
+    for(int k = 0; k < ANT_COUNT;k++){
+        ants[k].cost = 0;
+        for(uint16_t j=0; j<ants[k].path.size() ;j++){
+            ants[k].cost += ants[k].path[j].price;
+        }
+    }
+
+    //Get actual best path
+    int bestIndex = 0;
+    for(int k = 0; k < ANT_COUNT; k++){
+        if(ants[k].cost > ants[bestIndex].cost){
+            bestIndex=k;
+        }
+    }
+
+
+    if(ants[bestIndex].cost < bestCost) {
+        bestCost = ants[bestIndex].cost;
+        bestPath = ants[bestIndex].path;
+    }
+
+
+
+    //Update global pheromones
+    //Initialize edges with pheromone
+    map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
+    for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
+
+        //Iterate oved map key=destination
+        map <string , map <uint16_t , Flight>  >::const_iterator itdes;
+        for( itdes=citiesMap[its->first].begin(); itdes!=citiesMap[its->first].end(); itdes++) {
+
+            //Iterate oved map key=departure
+            map <uint16_t , Flight>  ::const_iterator itdep;
+            for( itdep=citiesMap[its->first][itdes->first].begin(); itdep!=citiesMap[its->first][itdes->first].end(); itdep++) {
+                float pheromoneActual = citiesMap[its->first][itdes->first][itdep->first].pheromone;
+
+                // TODO namiesto "bestCost" tam ma byt sucet cien vsetkych tras mravcov, ktore maju vo vyslednej trase aj tento let
+                citiesMap[its->first][itdes->first][itdep->first].pheromone = (1-ALPHA) * pheromoneActual + (1 / bestCost);
+            }
+        }
     }
 }
 
 int main(int argc, char **argv) {
 
+    srand(time(NULL));
+
+    // register signal SIGINT and signal handler
     if (signal(SIGINT, sig_handler) == SIG_ERR)
       printf("\nCan't catch SIGINT\n");
 
@@ -243,8 +239,16 @@ int main(int argc, char **argv) {
         cout << e.what() << endl;
     }
 
+
+
     init();
+
+    cout << "Startujem z: " << start << endl;
+
+    //Infinite loop
+//      while(true){
     evaluate();
+//}
     //printCities();
     return 0;
 }
