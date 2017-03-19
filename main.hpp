@@ -5,11 +5,11 @@
 #include <vector>
 
 
-int ANT_COUNT = 10;
-int BETA = 2;
-float PHEROMONE_INIT_VALUE = 10;
-float ALPHA = 0.1;
-float RHO = 0.5;
+const int ANT_COUNT = 100;
+const int BETA = 2;
+const float PHEROMONE_INIT_VALUE = 5;
+const float ALPHA = 0.1;
+const float RHO = 0.1;
 
 struct MissingColumnException : public std::exception {
     const char * what () const throw () {
