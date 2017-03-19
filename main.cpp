@@ -215,7 +215,7 @@ void evaluateAnt(int antIndex) {
 void evaluate() {
 
     // Create ants = threads
-    std::thread threads[ANT_COUNT];
+    thread threads[ANT_COUNT];
     for(int antIndex = 0; antIndex < ANT_COUNT; antIndex++) {
         threads[antIndex] = thread(evaluateAnt, antIndex);
     }
