@@ -12,10 +12,12 @@ TFLAGS = -lpthread
 # the build target executable:
 TARGET = main
 
+EXECUTABLE_NAME = run
+
 all: $(TARGET)
 
 $(TARGET): $(TARGET).cpp $(TARGET).hpp
-	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).cpp $(TFLAGS)
+	$(CC) $(CFLAGS) -o $(EXECUTABLE_NAME) $(TARGET).cpp $(TFLAGS)
 
 clean:
 	$(RM) $(TARGET)
