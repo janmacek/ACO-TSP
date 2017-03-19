@@ -41,7 +41,7 @@ void printPath(vector<Flight> path) {
 void sig_handler(int signal) {
     if (signal == SIGTERM){
         printResults();
-        exit(0);
+    //    exit(0);
     }
 }
 
@@ -165,6 +165,7 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
 }
 
 void evaluateAnt(int antIndex) {
+
     for(int cityIndex = 0; cityIndex < cityCount; cityIndex++) {
         if(cityIndex < (cityCount -1) ) {
 
@@ -282,7 +283,7 @@ int main(int argc, char **argv) {
     while(true){
         initAnts();
         evaluate();
-        printResults();
+        //printResults();
     }
 
     return 0;
