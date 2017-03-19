@@ -1,13 +1,13 @@
 #include <csignal>
 #include <iostream>
-#include <ctime>
 #include <cmath>
 #include <string>
-#include <fstream>
 #include <sstream>
 #include <vector>
 #include <map>
-#include <list>
+#include <thread>
+#include <mutex>
+
 
 #include "main.hpp"
 
@@ -16,14 +16,11 @@ using namespace std;
 map<string, map <string , map <uint16_t , Flight> > > citiesMap;
 string start = "";
 int bestCost = UINT16_MAX;
+int cityCount = 0;
 vector<Flight> bestPath;
 vector<Ant> ants;
-int cityCount = 0;
 set<string> tmpCities;
-
-//TODO zmazat nakonci
-int lostAnts = 0;
-
+std::mutex mu;
 
 void printResults() {
     cout << bestCost <<endl;
@@ -31,11 +28,18 @@ void printResults() {
     for(it = bestPath.begin(); it != bestPath.end();it++){
         cout << it->source <<" "<<it->destination <<" "<< it->departure<<" "<< it->price << endl;
     }
+}
+
+void printPath(vector<Flight> path) {
+    vector<Flight>::iterator it;
+    for(it = path.begin(); it != path.end();it++){
+        cout << it->source <<" "<<it->destination <<" "<< it->departure<<" "<< it->price << endl;
+    }
 
 }
 
 void sig_handler(int signal) {
-    if (signal == SIGINT){
+    if (signal == SIGTERM){
         printResults();
         exit(0);
     }
@@ -92,7 +96,8 @@ void printCities() {
     }
 }
 
-void initAnts(){
+void initAnts() {
+
     //Initialization of ants
     ants.clear();
     for(int i=0; i<ANT_COUNT; i++){
@@ -100,7 +105,7 @@ void initAnts(){
 
         tmpAnt.actualCity = start;
         tmpAnt.nextCity = "";
-        tmpAnt.cost = UINT16_MAX;
+        tmpAnt.cost = 0;
         tmpAnt.nonVisitedCities = tmpCities;
         tmpAnt.active = true;
 
@@ -108,7 +113,7 @@ void initAnts(){
     }
 }
 
-void init(){
+void init() {
 
     map<string, map <string , map <uint16_t , Flight > > >::const_iterator its;
     for( its=citiesMap.begin(); its!=citiesMap.end(); its++) {
@@ -120,9 +125,7 @@ void init(){
     initAnts();
 }
 
-
-
-string getNextCity(string source, uint16_t departure, set<string> nonVisitedCities){
+string getNextCity(string source, uint16_t departure, set<string> nonVisitedCities) {
 
     vector<string> availableCities;
     vector<float> availableCitiesRating;
@@ -134,12 +137,15 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
 
         //Iba ak existuje taky let
         if(citiesMap[source][*itdes][departure].source.compare("") != 0){
-            float cityRating = citiesMap[source][*itdes][departure].pheromone * (1 / pow(citiesMap[source][*itdes][departure].price, BETA));
+            mu.lock();
+            float pheromone = citiesMap[source][*itdes][departure].pheromone;
+            mu.unlock();
+
+            float cityRating = pheromone * (1 / pow(citiesMap[source][*itdes][departure].price, BETA));
             availableCities.push_back(*itdes);
             availableCitiesRating.push_back(cityRating);
             availableCitiesRatingSum += cityRating;
         }
-
     }
 
     // Generate random number from <0;1>
@@ -158,57 +164,65 @@ string getNextCity(string source, uint16_t departure, set<string> nonVisitedCiti
     return "";
 }
 
-void evaluate() {
+void evaluateAnt(int antIndex) {
+    for(int cityIndex = 0; cityIndex < cityCount; cityIndex++) {
+        if(cityIndex < (cityCount -1) ) {
 
-    for(int i = 0; i < cityCount; i++) {
-        if(i < (cityCount -1) ) {
+            // Skip ant if is lost / inactive
+            if(ants[antIndex].active){
 
-            // Find next city for all ants
-            for(int k = 0; k < ANT_COUNT; k++){
+                // Find next city for ant
+                ants[antIndex].nextCity = getNextCity(ants[antIndex].actualCity,cityIndex,ants[antIndex].nonVisitedCities);
 
                 // Ant is lost ?
-                if(ants[k].active){
-
-                    ants[k].nextCity = getNextCity(ants[k].actualCity,i,ants[k].nonVisitedCities);
-                    // Ant is lost ?
-                    if(ants[k].nextCity.compare("") == 0){
-                        ants[k].active=false;
-                    }else{
-                        ants[k].nonVisitedCities.erase(ants[k].nextCity);
-                        ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
-                    }
+                if(ants[antIndex].nextCity.compare("") == 0){
+                    ants[antIndex].active = false;
+                } else {
+                    ants[antIndex].nonVisitedCities.erase(ants[antIndex].nextCity);
+                    ants[antIndex].path.push_back(citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex]);
+                    ants[antIndex].cost += citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex].price;
                 }
             }
         } else {
 
-            // Return all ants to start city
-            for(int k = 0; k < ANT_COUNT; k++){
+            // In the end append last flight to route - flight back to start city
+            // Skip ant if is lost / inactive
+            if(ants[antIndex].active){
+                ants[antIndex].nextCity = start;
+                if(citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex].source.compare("") != 0){
+                    ants[antIndex].path.push_back(citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex]);
+                    ants[antIndex].cost += citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex].price;
+                } else {
 
-                // Ant is not lost ?
-                if(ants[k].active){
-                    ants[k].nextCity = start;
-                    if(citiesMap[ants[k].actualCity][ants[k].nextCity][i].source.compare("") != 0){
-                        ants[k].path.push_back(citiesMap[ants[k].actualCity][ants[k].nextCity][i]);
-                    }else{
-                        ants[k].active=false;
-                    }
-
-
+                    // If no next city, then ant is lost / inactive
+                    ants[antIndex].active = false;
                 }
-
             }
         }
 
-        // Local update pheromone and and position
-        for(int k = 0; k < ANT_COUNT; k++){
-
-            //Ant is not lost ?
-            if(ants[k].active){
-                float pheromoneActual = citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone;
-                citiesMap[ants[k].actualCity][ants[k].nextCity][i].pheromone = (1 - RHO) *  pheromoneActual + RHO * PHEROMONE_INIT_VALUE;
-                ants[k].actualCity = ants[k].nextCity ;
-            }
+        // Local update pheromone and position
+        // Skip ant if is lost / inactive
+        if(ants[antIndex].active){
+            mu.lock();
+            float pheromoneActual = citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex].pheromone;
+            citiesMap[ants[antIndex].actualCity][ants[antIndex].nextCity][cityIndex].pheromone = (1 - RHO) *  pheromoneActual + RHO * PHEROMONE_INIT_VALUE;
+            mu.unlock();
+            ants[antIndex].actualCity = ants[antIndex].nextCity ;
         }
+    }
+}
+
+void evaluate() {
+
+    // Create ants = threads
+    std::thread threads[ANT_COUNT];
+    for(int antIndex = 0; antIndex < ANT_COUNT; antIndex++) {
+        threads[antIndex] = thread(evaluateAnt, antIndex);
+    }
+
+    // Wait until all of ants ends their route
+    for(int antIndex = 0; antIndex < ANT_COUNT; antIndex++) {
+        threads[antIndex].join();
     }
 
     // Update cost of ant path
@@ -222,10 +236,10 @@ void evaluate() {
     }
 
     // Find best solution across ants
-    int bestIndex = 0;
+    int bestIndex = -1;
     for(int k = 0; k < ANT_COUNT; k++){
         if(ants[k].active){
-            if(ants[k].cost < ants[bestIndex].cost ){
+            if(bestIndex == -1 || ants[k].cost < ants[bestIndex].cost ){
                 bestIndex=k;
             }
         }
@@ -236,21 +250,25 @@ void evaluate() {
         bestPath = ants[bestIndex].path;
     }
 
-    // Update global pheromones
-    vector<Flight>::const_iterator flight_it;
-    for( flight_it=bestPath.begin(); flight_it!=bestPath.end(); flight_it++) {
-        float pheromoneActual = citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone;
-        citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone = ( 1 - ALPHA ) * pheromoneActual + (1 / bestCost);
+    // If best cost is zero, that means no route was found
+    if(bestCost != 0) {
+
+        // Update global pheromones
+        vector<Flight>::const_iterator flight_it;
+        for( flight_it=bestPath.begin(); flight_it!=bestPath.end(); flight_it++) {
+            float pheromoneActual = citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone;
+            citiesMap[flight_it->source][flight_it->destination][flight_it->departure].pheromone = ( 1 - ALPHA ) * pheromoneActual + (1 / bestCost);
+        }
     }
 }
 
 int main(int argc, char **argv) {
-
     srand(time(NULL));
 
-    // register signal SIGINT and signal handler
-    if (signal(SIGINT, sig_handler) == SIG_ERR)
-      printf("\nCan't catch SIGINT\n");
+    // Register signal SIGTERM and signal handler
+    if (signal(SIGTERM, sig_handler) == SIG_ERR) {
+        printf("\nCan't catch SIGINT\n");
+    }
 
     try{
         readCsv();
@@ -258,18 +276,14 @@ int main(int argc, char **argv) {
         cout << e.what() << endl;
     }
 
-
-
     init();
-    //printCities();
-    cout << "Startujem z: " << start << endl;
 
-    //Infinite loop
+    // Infinite loop - SIGTERM will end this program
     while(true){
         initAnts();
         evaluate();
         printResults();
     }
-    //printCities();
+
     return 0;
 }
